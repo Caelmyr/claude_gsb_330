@@ -34,12 +34,12 @@ from typing import Any, Dict, List, Optional
 DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
-_DIRS = ("scenes", "runs", "experiments", "reports", "exports")
+_DATA_DIRS = ("scenes", "runs", "experiments", "reports", "exports", "alerts")
 
 
 def ensure_dirs() -> None:
     """Create the on-disk directory skeleton if it does not exist yet."""
-    for name in _DIRS:
+    for name in _DATA_DIRS:
         os.makedirs(os.path.join(DATA_DIR, name), exist_ok=True)
 
 
@@ -192,6 +192,15 @@ def list_runs() -> List[Dict[str, Any]]:
     return out
 
 
+def list_run_ids() -> List[str]:
+    """All run ids (directory names under ``runs/``)."""
+    out: List[str] = []
+    for name in os.listdir(runs_dir()):
+        if os.path.isdir(os.path.join(runs_dir(), name)):
+            out.append(name)
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Per-step snapshots and series
 # --------------------------------------------------------------------------- #
@@ -244,6 +253,49 @@ def save_events(run_id: str, events: List[Dict[str, Any]]) -> None:
 
 def load_events(run_id: str) -> List[Dict[str, Any]]:
     return read_json(run_events_path(run_id), []) or []
+
+
+# --------------------------------------------------------------------------- #
+# Alert rules and events
+# --------------------------------------------------------------------------- #
+def alerts_dir() -> str:
+    return os.path.join(DATA_DIR, "alerts")
+
+
+def rules_path() -> str:
+    return os.path.join(alerts_dir(), "rules.json")
+
+
+def run_alerts_path(run_id: str) -> str:
+    return os.path.join(run_dir(run_id), "alerts.json")
+
+
+def run_alert_state_path(run_id: str) -> str:
+    return os.path.join(run_dir(run_id), "alert_state.json")
+
+
+def load_rules() -> List[Dict[str, Any]]:
+    return read_json(rules_path(), []) or []
+
+
+def save_rules(rules: List[Dict[str, Any]]) -> None:
+    atomic_write_json(rules_path(), rules)
+
+
+def load_run_alerts(run_id: str) -> List[Dict[str, Any]]:
+    return read_json(run_alerts_path(run_id), []) or []
+
+
+def save_run_alerts(run_id: str, events: List[Dict[str, Any]]) -> None:
+    atomic_write_json(run_alerts_path(run_id), events)
+
+
+def load_run_alert_state(run_id: str) -> Dict[str, Any]:
+    return read_json(run_alert_state_path(run_id), {}) or {}
+
+
+def save_run_alert_state(run_id: str, state: Dict[str, Any]) -> None:
+    atomic_write_json(run_alert_state_path(run_id), state)
 
 
 def save_report(run_id: str, report: Dict[str, Any]) -> None:

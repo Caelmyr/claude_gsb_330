@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>事件告警中心 · 复杂系统模拟仿真平台</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="topnav" id="topnav"></nav>
+  <main class="container">
+    <h1 class="page-title">事件告警中心</h1>
+    <p class="page-sub">实时检测运行中的关键事件（拥堵、爆发、灭绝等），支持按运行、类型、时间范围筛选。</p>
+
+    <!-- Alert summary cards -->
+    <div class="grid grid-4" id="alertStats"></div>
+
+    <!-- Filters -->
+    <div class="card">
+      <h2>筛选</h2>
+      <div class="row">
+        <select id="filterRun" style="max-width:200px"></select>
+        <select id="filterRule" style="max-width:200px"></select>
+        <select id="filterMetric" style="max-width:150px"></select>
+        <select id="filterSeverity" style="max-width:120px">
+          <option value="">全部级别</option>
+          <option value="critical">严重</option>
+          <option value="warning">警告</option>
+          <option value="info">提示</option>
+        </select>
+        <input type="number" id="filterStartStep" placeholder="起始步" style="width:100px">
+        <input type="number" id="filterEndStep" placeholder="结束步" style="width:100px">
+        <button class="btn primary" id="btnFilter">筛选</button>
+        <button class="btn" id="btnReset">重置</button>
+      </div>
+    </div>
+
+    <!-- Event list -->
+    <div class="card">
+      <h2>事件列表 <span class="muted small" id="eventCount"></span></h2>
+      <div id="eventList"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="btnLoadMore" style="display:none">加载更多</button>
+      </div>
+    </div>
+
+    <!-- Rules management -->
+    <div class="card">
+      <h2>告警规则</h2>
+      <div id="ruleList"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" id="btnNewRule">新建规则</button>
+      </div>
+      <div id="ruleForm" style="display:none; margin-top:16px">
+        <h3>规则详情</h3>
+        <div class="grid grid-2">
+          <div class="field"><label>名称</label><input id="ruleName"></div>
+          <div class="field"><label>领域（留空表示全部）</label><select id="ruleDomain"></select></div>
+          <div class="field"><label>指标</label><select id="ruleMetric"></select></div>
+          <div class="field"><label>比较方向</label><select id="ruleComparator">
+            <option value="gt">大于 (&gt;)</option>
+            <option value="ge">大于等于 (&ge;)</option>
+            <option value="lt">小于 (&lt;)</option>
+            <option value="le">小于等于 (&le;)</option>
+          </select></div>
+          <div class="field"><label>阈值</label><input type="number" id="ruleThreshold" step="any"></div>
+          <div class="field"><label>严重级别</label><select id="ruleSeverity">
+            <option value="info">提示</option>
+            <option value="warning" selected>警告</option>
+            <option value="critical">严重</option>
+          </select></div>
+          <div class="field"><label>重复提醒</label><label class="check"><input type="checkbox" id="ruleRepeat" checked> 触发后重复提醒</label></div>
+          <div class="field"><label>滞回带（防止抖动，留空自动）</label><input type="number" id="ruleHysteresis" step="any" placeholder="自动"></div>
+          <div class="field"><label>描述</label><input id="ruleDescription"></div>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="btnSaveRule">保存</button>
+          <button class="btn" id="btnCancelRule">取消</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/alerts.js"></script>
+</body>
+</html>

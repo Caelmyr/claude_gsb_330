@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from . import catalog, export, models, report, storage, util
+from . import alerts, catalog, export, models, report, storage, util
 from .run_manager import manager
 
 FRONTEND_DIR = os.path.join(
@@ -342,6 +342,75 @@ def create_app() -> Flask:
             return _err(exc, 400)
         name = os.path.basename(path)
         return send_file(path, as_attachment=True, download_name=name)
+
+    # ------------------------------------------------------------------ #
+    # Alert rules and events (event alert center)
+    # ------------------------------------------------------------------ #
+    @app.route("/api/alerts/rules", methods=["GET"])
+    def list_alert_rules():
+        return jsonify({"rules": alerts.load_rules()})
+
+    @app.route("/api/alerts/rules", methods=["POST"])
+    def create_alert_rule():
+        rule = alerts.normalize_rule(_json())
+        errors = alerts.validate_rule(rule)
+        if errors:
+            return jsonify({"error": "validation failed", "details": errors}), 400
+        rules = alerts.load_rules()
+        rules.append(rule)
+        alerts.save_rules(rules)
+        return jsonify(rule), 201
+
+    @app.route("/api/alerts/rules/<rule_id>", methods=["PUT"])
+    def update_alert_rule(rule_id: str):
+        rules = alerts.load_rules()
+        for i, rule in enumerate(rules):
+            if rule["id"] == rule_id:
+                updated = alerts.normalize_rule({**rule, **_json(), "id": rule_id})
+                errors = alerts.validate_rule(updated)
+                if errors:
+                    return jsonify({"error": "validation failed", "details": errors}), 400
+                rules[i] = updated
+                alerts.save_rules(rules)
+                return jsonify(updated)
+        return _err(KeyError(f"rule not found: {rule_id}"), 404)
+
+    @app.route("/api/alerts/rules/<rule_id>", methods=["DELETE"])
+    def delete_alert_rule(rule_id: str):
+        rules = alerts.load_rules()
+        if not any(r["id"] == rule_id for r in rules):
+            return _err(KeyError(f"rule not found: {rule_id}"), 404)
+        alerts.save_rules([r for r in rules if r["id"] != rule_id])
+        return jsonify({"deleted": rule_id})
+
+    @app.route("/api/alerts/events", methods=["GET"])
+    def list_alert_events():
+        return jsonify(alerts.query_events(
+            run_id=request.args.get("run_id"),
+            rule_id=request.args.get("rule_id"),
+            metric=request.args.get("metric"),
+            severity=request.args.get("severity"),
+            start_step=request.args.get("start_step", type=int),
+            end_step=request.args.get("end_step", type=int),
+            start_time=request.args.get("start_time"),
+            end_time=request.args.get("end_time"),
+            limit=request.args.get("limit", type=int, default=50),
+            offset=request.args.get("offset", type=int, default=0),
+        ))
+
+    @app.route("/api/alerts/summary", methods=["GET"])
+    def alert_summary():
+        return jsonify(alerts.summary())
+
+    @app.route("/api/runs/<run_id>/alerts", methods=["GET"])
+    def run_alerts(run_id: str):
+        if storage.load_run_meta(run_id) is None:
+            return _err(KeyError(f"run not found: {run_id}"), 404)
+        return jsonify(alerts.query_events(
+            run_id=run_id,
+            limit=request.args.get("limit", type=int, default=50),
+            offset=request.args.get("offset", type=int, default=0),
+        ))
 
     # ------------------------------------------------------------------ #
     # History (scenes + runs + experiments in one view)

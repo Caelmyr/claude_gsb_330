@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Dict, List, Optional
 
-from . import models, storage, util
+from . import alerts, models, storage, util
 from .engine import make_engine
 from .engine.base import Engine
 
@@ -115,18 +115,25 @@ class RunManager:
                 raise RuntimeError("该运行未载入内存（服务器重启后不可续跑），请重开新运行")
             if meta["status"] in ("finished", "stopped"):
                 meta["status"] = "ready"
+            new_events = []
             for _ in range(int(n)):
                 self._apply_due(run_id, engine, meta, engine.step_count)
                 engine.step()
                 meta["current_step"] = engine.step_count
                 meta["updated_at"] = util.now_iso()
+                stats = engine.stats()
                 storage.append_series(run_id, {"step": engine.step_count,
-                                               **engine.stats()})
+                                               **stats})
+                events = alerts.evaluate(
+                    run_id, meta["name"], meta["domain"],
+                    engine.step_count, stats)
+                if events:
+                    new_events.extend(events)
                 if engine.step_count % meta["snapshot_interval"] == 0:
                     storage.save_step(run_id, engine.step_count, engine.snapshot())
             storage.save_run_meta(meta)
             return {"step": engine.step_count, "stats": engine.stats(),
-                    "snapshot": engine.snapshot()}
+                    "snapshot": engine.snapshot(), "alerts": new_events}
 
     def run_batch(self, run_id: str, steps: int,
                   snapshot_interval: Optional[int] = None,
@@ -148,13 +155,20 @@ class RunManager:
 
             series = storage.load_series(run_id)
             self._abort.discard(run_id)
+            new_events = []
             for _ in range(int(steps)):
                 if run_id in self._abort:
                     break
                 self._apply_due(run_id, engine, meta, engine.step_count)
                 engine.step()
                 meta["current_step"] = engine.step_count
-                series.append({"step": engine.step_count, **engine.stats()})
+                stats = engine.stats()
+                series.append({"step": engine.step_count, **stats})
+                events = alerts.evaluate(
+                    run_id, meta["name"], meta["domain"],
+                    engine.step_count, stats)
+                if events:
+                    new_events.extend(events)
                 if engine.step_count % meta["snapshot_interval"] == 0:
                     storage.save_step(run_id, engine.step_count, engine.snapshot())
                 if engine.step_count % 50 == 0:
@@ -173,7 +187,7 @@ class RunManager:
                 with self._lock:
                     self._engines.pop(run_id, None)
             return {"step": engine.step_count, "stats": engine.stats(),
-                    "snapshot": final}
+                    "snapshot": final, "alerts": new_events}
 
     # ------------------------------------------------------------------ #
     # Control
@@ -220,6 +234,8 @@ class RunManager:
             storage.save_step(run_id, 0, engine.snapshot())
             storage.save_series(run_id, [{"step": 0, **engine.stats()}])
             storage.save_events(run_id, [])
+            storage.save_run_alerts(run_id, [])
+            storage.save_run_alert_state(run_id, {})
             storage.save_run_meta(meta)
             return meta
 

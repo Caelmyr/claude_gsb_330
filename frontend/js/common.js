@@ -1,4 +1,5 @@
-/* Shared UI helpers: navigation, label maps, dropdown population. */
+/* Shared UI helpers: navigation, label maps, dropdown population,
+   alert banner and toast notifications. */
 
 const PAGES = [
   { file: "index.html", label: "总览" },
@@ -12,6 +13,7 @@ const PAGES = [
   { file: "report.html", label: "报告生成" },
   { file: "export.html", label: "数据导出" },
   { file: "history.html", label: "历史场景" },
+  { file: "alerts.html", label: "告警中心" },
 ];
 
 const DOMAIN_LABEL = { traffic: "交通", ecology: "生态", epidemic: "传染病" };
@@ -30,7 +32,8 @@ function renderNav() {
     <span class="brand"><span class="dot">◈</span> 复杂系统模拟仿真平台</span>
     ${PAGES.map((p) => `
       <a class="nav-link ${p.file === active ? "active" : ""}" href="/${p.file}">${p.label}</a>
-    `).join("")}`;
+    `).join("")}
+    <span id="alertBadge" class="alert-badge" style="display:none"></span>`;
 }
 
 /* Populate a <select> with scenes; returns the selected value. */
@@ -64,4 +67,87 @@ function debounce(fn, ms = 250) {
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
-document.addEventListener("DOMContentLoaded", renderNav);
+// ---------------------------------------------------------------------------
+// Alert banner (recent critical alerts) + toast notifications
+// ---------------------------------------------------------------------------
+let alertBannerTimer = null;
+let lastAlertCount = 0;
+let lastAlertId = null;
+
+function showToast(message, severity = "info") {
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${severity}`;
+  toast.innerHTML = `
+    <div class="toast-content">${esc(message)}</div>
+    <button class="toast-close" aria-label="关闭">&times;</button>`;
+  document.body.appendChild(toast);
+  toast.querySelector(".toast-close").onclick = () => toast.remove();
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 6000);
+}
+
+async function updateAlertBanner() {
+  try {
+    const summary = await get("/api/alerts/summary");
+    const recentCritical = summary.recent_critical || 0;
+    const banner = document.getElementById("alertBanner");
+    const badge = document.getElementById("alertBadge");
+
+    // Update the nav badge
+    if (badge) {
+      if (recentCritical > 0) {
+        badge.textContent = recentCritical;
+        badge.style.display = "inline-block";
+        badge.className = "alert-badge critical";
+      } else if (summary.warning_count > 0) {
+        badge.textContent = summary.warning_count;
+        badge.style.display = "inline-block";
+        badge.className = "alert-badge warning";
+      } else {
+        badge.style.display = "none";
+      }
+    }
+
+    // Update the banner (top of the container)
+    if (banner) {
+      if (recentCritical > 0) {
+        const latest = summary.recent_events.find((e) => e.severity === "critical");
+        banner.innerHTML = `
+          <div class="alert-banner critical">
+            <span class="alert-icon">⚠</span>
+            <span class="alert-text">最近 5 分钟内有 ${recentCritical} 条严重告警${latest ? `：${esc(latest.message)}` : ""}</span>
+            <a href="/alerts.html" class="alert-link">查看详情</a>
+          </div>`;
+      } else {
+        banner.innerHTML = "";
+      }
+    }
+
+    // Show toast for new critical alerts
+    if (recentCritical > 0 && summary.recent_events.length > 0) {
+      const latest = summary.recent_events[0];
+      if (latest.severity === "critical" && latest.id !== lastAlertId) {
+        showToast(latest.message, "critical");
+        lastAlertId = latest.id;
+      }
+    }
+
+    lastAlertCount = recentCritical;
+  } catch (e) {
+    // Ignore errors (e.g., server not ready)
+  }
+}
+
+function startAlertBanner() {
+  const container = document.querySelector(".container");
+  if (!container) return;
+  const banner = document.createElement("div");
+  banner.id = "alertBanner";
+  container.insertBefore(banner, container.firstChild);
+  updateAlertBanner();
+  alertBannerTimer = setInterval(updateAlertBanner, 5000);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  renderNav();
+  startAlertBanner();
+});
