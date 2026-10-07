@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>事件告警中心 · 复杂系统模拟仿真平台</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="topnav" id="topnav"></nav>
+  <main class="container">
+    <h1 class="page-title">事件告警中心</h1>
+    <p class="page-sub">拥堵形成、疫情爆发、种群灭绝、干预触发……按可配置阈值实时检测记录；同一次越界只提醒一次，可按运行、类型、时间范围快速回溯。</p>
+
+    <div class="card">
+      <div class="row between">
+        <div class="row">
+          <select id="runSelect" style="max-width:420px"></select>
+          <button class="btn small" id="refreshBtn">刷新</button>
+          <label class="check small"><input type="checkbox" id="autoRefresh"> 实时自动刷新</label>
+        </div>
+        <a class="btn small" id="gotoViz" href="#">前往实时可视化 →</a>
+      </div>
+      <div class="alert-banner" id="liveBanner"></div>
+    </div>
+
+    <div class="grid" style="grid-template-columns:330px 1fr; gap:18px; align-items:start">
+      <!-- Filters -->
+      <div>
+        <div class="card">
+          <h2>筛选条件</h2>
+          <div class="field">
+            <label>事件类型</label>
+            <select id="fKind">
+              <option value="">全部类型</option>
+              <option value="fire">越界触发（含重复提醒）</option>
+              <option value="repeat">仅重复提醒</option>
+              <option value="recovered">恢复正常</option>
+              <option value="intervention">干预触发</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>级别</label>
+            <select id="fSeverity">
+              <option value="">全部级别</option>
+              <option value="critical">严重</option>
+              <option value="warning">警告</option>
+              <option value="info">提示</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>指标</label>
+            <select id="fMetric"><option value="">全部指标</option></select>
+          </div>
+          <div class="field">
+            <label>时间范围（时间步）</label>
+            <div class="row gap-6">
+              <input type="number" id="fStepFrom" min="0" placeholder="起始步" style="width:50%">
+              <input type="number" id="fStepTo" min="0" placeholder="结束步" style="width:50%">
+            </div>
+          </div>
+          <div class="field">
+            <label>发生时刻（墙钟时间）</label>
+            <div class="row gap-6">
+              <input type="datetime-local" id="fTimeFrom" style="width:50%">
+              <input type="datetime-local" id="fTimeTo" style="width:50%">
+            </div>
+          </div>
+          <div class="field">
+            <label>关键词</label>
+            <input type="text" id="fSearch" placeholder="搜索规则名 / 告警内容">
+          </div>
+          <div class="row gap-6">
+            <button class="btn primary small" id="applyFilter">应用筛选</button>
+            <button class="btn small" id="clearFilter">清除</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>告警规则</h2>
+          <p class="muted small" style="margin-top:0">指标需连续 N 步越界才触发（防抖）；同一轮越界默认只记一次，可开启周期重复提醒。</p>
+          <div id="ruleList"></div>
+          <div class="row gap-6" style="margin-top:8px">
+            <button class="btn primary small" id="addRule">+ 新建规则</button>
+            <button class="btn small" id="restoreRules">恢复默认</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alert list -->
+      <div class="card">
+        <div class="row between">
+          <h2 style="margin:0">事件记录 <span class="muted small" id="totalLine"></span></h2>
+          <div class="row gap-6">
+            <label class="muted small">每页</label>
+            <select id="pageSize" style="width:80px">
+              <option>20</option><option selected>50</option><option>100</option>
+            </select>
+          </div>
+        </div>
+        <div id="summary" class="row gap-6" style="margin:12px 0"></div>
+        <div id="alertList" style="margin-top:10px"></div>
+        <div class="pager" id="pager"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Rule editor modal -->
+  <div id="ruleModal" class="modal-mask" style="display:none">
+    <div class="modal">
+      <h2 id="modalTitle">新建告警规则</h2>
+      <input type="hidden" id="rId">
+      <div class="field"><label>规则名称</label><input type="text" id="rName" placeholder="例如：拥堵形成"></div>
+      <div class="grid grid-2" style="gap:10px">
+        <div class="field"><label>监控指标</label><select id="rMetric"></select></div>
+        <div class="field"><label>级别</label>
+          <select id="rSeverity">
+            <option value="critical">严重</option>
+            <option value="warning" selected>警告</option>
+            <option value="info">提示</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid grid-2" style="gap:10px">
+        <div class="field"><label>比较方向</label><select id="rOp">
+          <option value="gte">高于/达到阈值（≥）</option>
+          <option value="lte">低于/达到阈值（≤）</option>
+        </select></div>
+        <div class="field"><label>阈值</label><input type="number" step="any" id="rThreshold"></div>
+      </div>
+      <div class="grid grid-2" style="gap:10px">
+        <div class="field"><label>连续越界 N 步才触发（防抖）</label><input type="number" min="1" id="rForSteps" value="1"></div>
+        <div class="field"><label>重复提醒间隔（步，0=不重复）</label><input type="number" min="0" id="rRepeatInterval" value="0"></div>
+      </div>
+      <div class="field"><label class="check"><input type="checkbox" id="rEnabled" checked> 启用该规则</label></div>
+      <p class="muted small">说明：指标回到阈值内并持续 N 步后判定“恢复正常”，之后再次越界才会重新记录——阈值附近反复波动不会刷屏。</p>
+      <div class="row gap-6" style="justify-content:flex-end">
+        <button class="btn small" id="rCancel">取消</button>
+        <button class="btn primary small" id="rSave">保存规则</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastStack"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/alerts.js"></script>
+</body>
+</html>

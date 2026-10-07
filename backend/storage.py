@@ -8,6 +8,8 @@ Layout (all under :data:`DATA_DIR`)::
           meta.json                 # run config, status, current step
           series.json               # compact per-step aggregate statistics
           events.json               # applied intervention log
+          alerts.json               # event-alert-center log (threshold + interventions)
+          alert_rules.json          # configurable alert rules for the run
           steps/<nnnnnnnn>.json     # full per-step snapshot (individuals + grid)
           report.json               # generated report
       experiments/<exp_id>.json     # comparison experiments (param groups)
@@ -244,6 +246,30 @@ def save_events(run_id: str, events: List[Dict[str, Any]]) -> None:
 
 def load_events(run_id: str) -> List[Dict[str, Any]]:
     return read_json(run_events_path(run_id), []) or []
+
+
+def run_alerts_path(run_id: str) -> str:
+    return os.path.join(run_dir(run_id), "alerts.json")
+
+
+def run_alert_rules_path(run_id: str) -> str:
+    return os.path.join(run_dir(run_id), "alert_rules.json")
+
+
+def save_alerts(run_id: str, alerts: List[Dict[str, Any]]) -> None:
+    atomic_write_json(run_alerts_path(run_id), alerts)
+
+
+def load_alerts(run_id: str) -> List[Dict[str, Any]]:
+    return read_json(run_alerts_path(run_id), []) or []
+
+
+def save_alert_rules(run_id: str, rules: List[Dict[str, Any]]) -> None:
+    atomic_write_json(run_alert_rules_path(run_id), rules)
+
+
+def load_alert_rules(run_id: str) -> List[Dict[str, Any]]:
+    return read_json(run_alert_rules_path(run_id), []) or []
 
 
 def save_report(run_id: str, report: Dict[str, Any]) -> None:

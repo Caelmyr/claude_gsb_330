@@ -14,7 +14,7 @@ from typing import Any, Dict
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from . import catalog, export, models, report, storage, util
+from . import alerts, catalog, export, models, report, storage, util
 from .run_manager import manager
 
 FRONTEND_DIR = os.path.join(
@@ -229,6 +229,93 @@ def create_app() -> Flask:
             return jsonify({"events": manager.get_events(run_id)})
         except KeyError as exc:
             return _err(exc, 404)
+
+    # ------------------------------------------------------------------ #
+    # Event alert center (configurable threshold rules + alert log)
+    # ------------------------------------------------------------------ #
+    def _alert_filters_from_args():
+        """Build alert query kwargs from the request query string."""
+        f: Dict[str, Any] = {}
+        for key in ("kind", "severity", "metric", "search"):
+            val = request.args.get(key)
+            if val:
+                f[key] = val
+        for key in ("step_from", "step_to"):
+            val = request.args.get(key, type=int)
+            if val is not None:
+                f[key] = val
+        for key in ("time_from", "time_to"):
+            val = request.args.get(key)
+            if val:
+                f[key] = val
+        f["page"] = request.args.get("page", default=1, type=int)
+        f["page_size"] = request.args.get("page_size", default=50, type=int)
+        return f
+
+    @app.route("/api/runs/<run_id>/alert-rules", methods=["GET"])
+    def list_alert_rules(run_id: str):
+        try:
+            rules = manager.get_alert_rules(run_id)
+            metrics = catalog.CATALOG[
+                manager.status(run_id)["domain"]]["metrics"]
+            return jsonify({"rules": rules, "metrics": metrics,
+                            "directions": alerts.DIRECTIONS,
+                            "severities": [{"value": s,
+                                            "label": alerts.SEVERITY_LABEL[s]}
+                                           for s in alerts.SEVERITIES]})
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/runs/<run_id>/alert-rules", methods=["POST"])
+    def create_alert_rule(run_id: str):
+        try:
+            rule = manager.upsert_alert_rule(run_id, _json())
+            return jsonify(rule), 201
+        except KeyError as exc:
+            return _err(exc, 404)
+        except ValueError as exc:
+            return _err(exc, 400)
+
+    @app.route("/api/runs/<run_id>/alert-rules/<rule_id>", methods=["PUT"])
+    def update_alert_rule(run_id: str, rule_id: str):
+        try:
+            rule = manager.upsert_alert_rule(
+                run_id, {**_json(), "id": rule_id})
+            return jsonify(rule)
+        except KeyError as exc:
+            return _err(exc, 404)
+        except ValueError as exc:
+            return _err(exc, 400)
+
+    @app.route("/api/runs/<run_id>/alert-rules/<rule_id>", methods=["DELETE"])
+    def delete_alert_rule(run_id: str, rule_id: str):
+        try:
+            if not manager.delete_alert_rule(run_id, rule_id):
+                return _err(KeyError(f"rule not found: {rule_id}"), 404)
+            return jsonify({"deleted": rule_id})
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/runs/<run_id>/alert-rules/restore", methods=["POST"])
+    def restore_alert_rules(run_id: str):
+        try:
+            return jsonify({"rules": manager.restore_alert_rules(run_id)})
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/runs/<run_id>/alerts")
+    def run_alerts(run_id: str):
+        try:
+            result = manager.get_alerts(run_id, _alert_filters_from_args())
+            result["run_id"] = run_id
+            return jsonify(result)
+        except KeyError as exc:
+            return _err(exc, 404)
+
+    @app.route("/api/alerts/latest")
+    def latest_alerts():
+        limit = request.args.get("limit", default=20, type=int)
+        return jsonify({"alerts": manager.latest_alerts(limit)})
 
     @app.route("/api/runs/<run_id>/interventions", methods=["POST"])
     def apply_intervention(run_id: str):

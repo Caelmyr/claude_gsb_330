@@ -1,12 +1,66 @@
-/* Real-time visualization: step loop + canvas rendering. */
+/* Real-time visualization: step loop + canvas rendering + live alerts. */
 
 let runId = null;
 let meta = null;
 let labels = {};
 let running = false;
 let timer = null;
+let alertRows = [];
+let seenAlertIds = new Set();
+
+const SEV_LABEL = { critical: "严重", warning: "警告", info: "提示" };
 
 function statusLine(t) { el("statusLine").textContent = t; }
+
+function alertSevClass(a) {
+  return a.kind === "recovered" ? "recovered" : (a.severity || "info");
+}
+
+function renderAlertFeed(newOnes) {
+  if (newOnes && newOnes.length) {
+    alertRows = [...newOnes, ...alertRows].slice(0, 50);
+    newOnes.forEach((a) => {
+      if (!seenAlertIds.has(a.id)) {
+        seenAlertIds.add(a.id);
+        pushAlertToast(a, runId);
+      }
+    });
+  }
+  if (!alertRows.length) {
+    el("alertCard").style.display = "none";
+    return;
+  }
+  el("alertCard").style.display = "block";
+  el("alertFeed").innerHTML = alertRows.slice(0, 8).map((a) => {
+    const sc = alertSevClass(a);
+    const kind = { fire: "触发", repeat: "重复提醒", recovered: "恢复", intervention: "干预" }[a.kind] || a.kind;
+    return `<div class="alert-row ${sc}">
+      <span class="step-tag">第 ${a.step} 步</span>
+      <div style="min-width:0;flex:1">
+        <div class="msg"><span class="sev-dot ${sc}"></span>${esc(a.message)}</div>
+        <div class="meta-line">${esc(a.time)} · <span class="badge sev-${sc}">${esc(kind)}</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function fetchRecentAlerts(announce) {
+  if (!runId) return;
+  try {
+    const data = await get(`/api/runs/${runId}/alerts?page=1&page_size=50`);
+    const rows = data.alerts || [];
+    if (announce) {
+      const fresh = rows.filter((a) => !seenAlertIds.has(a.id));
+      if (fresh.length) {
+        renderAlertFeed(fresh);
+        return;
+      }
+    }
+    alertRows = rows;
+    rows.forEach((a) => seenAlertIds.add(a.id));
+    renderAlertFeed(null);
+  } catch (e) { /* ignore */ }
+}
 
 async function refreshRuns() {
   const runs = await fillRunSelect(el("runSelect"));
@@ -19,8 +73,12 @@ async function refreshRuns() {
 
 async function loadRun(id) {
   runId = id;
+  seenAlertIds = new Set();
+  alertRows = [];
+  el("alertCenterLink").href = `/alerts.html?run=${encodeURIComponent(id)}`;
   meta = await get(`/api/runs/${id}`);
   await loadSnapshot();
+  fetchRecentAlerts(false);
 }
 
 async function loadSnapshot() {
@@ -50,6 +108,10 @@ async function tick() {
     const r = await post(`/api/runs/${runId}/step`, { n });
     drawSnapshot(r.snapshot);
     statusLine(`第 ${r.step} 步 · 运行中`);
+    if (r.alerts && r.alerts.length) {
+      if (el("alertFollow").checked) renderAlertFeed(r.alerts);
+      else r.alerts.forEach((a) => seenAlertIds.add(a.id));
+    }
   } catch (e) {
     running = false;
     statusLine("已停止：" + e.message);
@@ -66,6 +128,9 @@ async function reset() {
   pause();
   if (!runId) return;
   await post(`/api/runs/${runId}/reset`);
+  alertRows = [];
+  seenAlertIds = new Set();
+  renderAlertFeed(null);
   await loadSnapshot();
   statusLine("已重置到第 0 步");
 }
@@ -79,8 +144,16 @@ async function init() {
   el("refreshRuns").onclick = refreshRuns;
   el("btnStart").onclick = start;
   el("btnPause").onclick = pause;
-  el("btnStep").onclick = async () => { if (!runId) return; const r = await post(`/api/runs/${runId}/step`, { n: 1 }); drawSnapshot(r.snapshot); statusLine(`第 ${r.step} 步`); };
+  el("btnStep").onclick = async () => {
+    if (!runId) return;
+    const r = await post(`/api/runs/${runId}/step`, { n: 1 });
+    drawSnapshot(r.snapshot);
+    statusLine(`第 ${r.step} 步`);
+    if (r.alerts && r.alerts.length) renderAlertFeed(r.alerts);
+  };
   el("btnReset").onclick = reset;
+  // Background batches / interventions produce alerts on the server; poll too.
+  setInterval(() => { if (runId) fetchRecentAlerts(true); }, 5000);
 
   await refreshRuns();
   const q = new URLSearchParams(window.location.search).get("run");

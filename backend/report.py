@@ -87,6 +87,7 @@ def generate_report(run_id: str) -> Dict[str, Any]:
         raise KeyError(f"run not found: {run_id}")
     series = storage.load_series(run_id)
     events = storage.load_events(run_id)
+    alerts = storage.load_alerts(run_id)
     domain = meta["domain"]
 
     metrics = _metric_rows(domain, series)
@@ -101,11 +102,47 @@ def generate_report(run_id: str) -> Dict[str, Any]:
         "config": meta["config"],
         "metrics": metrics,
         "events": events,
-        "summary": _narrative(domain, metrics, len(series)),
+        "alerts": alerts,
+        "alert_summary": _alert_summary(alerts),
+        "summary": _narrative(domain, metrics, len(series))
+                   + _alert_lines(alerts),
         "generated_at": util.now_iso(),
     }
     storage.save_report(run_id, report)
     return report
+
+
+def _alert_summary(alerts: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Count alerts by severity / kind for a compact report header."""
+    summary = {"total": len(alerts), "critical": 0, "warning": 0,
+               "info": 0, "fire": 0, "repeat": 0, "recovered": 0,
+               "intervention": 0}
+    for a in alerts:
+        sev = a.get("severity", "info")
+        if sev in summary:
+            summary[sev] += 1
+        kind = a.get("kind", "")
+        if kind in summary:
+            summary[kind] += 1
+    return summary
+
+
+def _alert_lines(alerts: List[Dict[str, Any]]) -> List[str]:
+    """Short report sentences highlighting the first critical breaches."""
+    if not alerts:
+        return ["本次运行未触发任何事件告警。"]
+    summary = _alert_summary(alerts)
+    lines = [f"事件告警共 {summary['total']} 条：严重 {summary['critical']}、"
+             f"警告 {summary['warning']}、提示 {summary['info']}；"
+             f"其中干预触发 {summary['intervention']} 次、恢复正常 "
+             f"{summary['recovered']} 次。"]
+    first_critical = next((a for a in sorted(alerts, key=lambda x: x["step"])
+                           if a.get("severity") == "critical"
+                           and a.get("kind") in ("fire", "repeat")), None)
+    if first_critical:
+        lines.append(f"最早的严重告警出现在第 {first_critical['step']} 步："
+                     f"{first_critical['message']}。")
+    return lines
 
 
 def load_report(run_id: str) -> Dict[str, Any]:

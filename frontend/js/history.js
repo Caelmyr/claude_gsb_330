@@ -26,6 +26,7 @@ function renderRuns() {
       </div>
       <div class="row gap-6">
         <a class="btn small" href="/visualize.html?run=${esc(r.id)}">可视化</a>
+        <a class="btn small" href="/alerts.html?run=${esc(r.id)}">告警</a>
         <a class="btn small" href="/replay.html?run=${esc(r.id)}">回放</a>
         <a class="btn small" href="/stats.html?run=${esc(r.id)}">统计</a>
         <a class="btn small" href="/report.html?run=${esc(r.id)}">报告</a>

@@ -21,6 +21,18 @@ function render(rpt) {
   const events = (rpt.events || []).slice().reverse().map((e) => `
     <tr><td>${e.step}</td><td>${esc(e.type)}</td><td class="muted small">${esc((e.result && e.result.reason) || "")}</td></tr>`).join("");
 
+  const as = rpt.alert_summary || { total: 0, critical: 0, warning: 0, info: 0 };
+  const KIND = { fire: "触发", repeat: "重复", recovered: "恢复", intervention: "干预" };
+  const sevCls = (a) => a.kind === "recovered" ? "recovered" : (a.severity || "info");
+  const alertRows = (rpt.alerts || []).slice().reverse().slice(0, 200).map((a) => `
+    <tr>
+      <td class="num mono">${a.step}</td>
+      <td><span class="sev-dot ${sevCls(a)}"></span></td>
+      <td>${esc(a.message)}</td>
+      <td><span class="badge sev-${sevCls(a)}">${esc(KIND[a.kind] || a.kind)}</span></td>
+      <td class="muted small">${esc(a.time || "")}</td>
+    </tr>`).join("");
+
   el("reportBody").innerHTML = `
     <div class="card">
       <div class="row between">
@@ -44,6 +56,23 @@ function render(rpt) {
         <thead><tr><th>指标</th><th class="num">初始</th><th class="num">最终</th><th class="num">最小</th><th class="num">最大</th><th class="num">峰值步</th></tr></thead>
         <tbody>${metricRows || '<tr><td colspan="6" class="muted">无指标</td></tr>'}</tbody>
       </table></div>
+    </div>
+
+    <div class="card">
+      <div class="row between">
+        <h2 style="margin:0">事件告警（${as.total}）</h2>
+        <div class="row gap-6">
+          <span class="badge sev-critical">严重 ${as.critical || 0}</span>
+          <span class="badge sev-warning">警告 ${as.warning || 0}</span>
+          <span class="badge sev-info">提示 ${as.info || 0}</span>
+          <a class="btn small" href="/alerts.html?run=${encodeURIComponent(rpt.run_id)}">告警中心筛选 →</a>
+        </div>
+      </div>
+      <div style="overflow-x:auto;margin-top:10px"><table>
+        <thead><tr><th>步</th><th></th><th>事件</th><th>类型</th><th>时间</th></tr></thead>
+        <tbody>${alertRows || '<tr><td colspan="5" class="muted">无告警</td></tr>'}</tbody>
+      </table></div>
+      ${(rpt.alerts || []).length > 200 ? '<p class="muted small">仅展示最近 200 条，完整列表请在告警中心按条件筛选。</p>' : ""}
     </div>
 
     <div class="grid grid-2">

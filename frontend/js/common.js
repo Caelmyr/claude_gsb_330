@@ -7,6 +7,7 @@ const PAGES = [
   { file: "visualize.html", label: "实时可视化" },
   { file: "stats.html", label: "统计图表" },
   { file: "intervention.html", label: "干预措施" },
+  { file: "alerts.html", label: "事件告警中心", alert: true },
   { file: "replay.html", label: "回放与时间轴" },
   { file: "compare.html", label: "对比实验" },
   { file: "report.html", label: "报告生成" },
@@ -29,8 +30,29 @@ function renderNav() {
   nav.innerHTML = `
     <span class="brand"><span class="dot">◈</span> 复杂系统模拟仿真平台</span>
     ${PAGES.map((p) => `
-      <a class="nav-link ${p.file === active ? "active" : ""}" href="/${p.file}">${p.label}</a>
+      <a class="nav-link ${p.file === active ? "active" : ""}" href="/${p.file}"${p.alert ? ' data-alert-nav="1"' : ""}>${p.label}${p.alert ? '<span class="nav-alert-count" style="display:none" data-alert-count></span>' : ""}</a>
     `).join("")}`;
+  refreshNavAlertCount();
+}
+
+/* Show a red count badge on the alert-center nav link when critical alerts
+   have been recorded in the last 10 minutes (polled every 15 s). */
+async function refreshNavAlertCount() {
+  const badge = document.querySelector("[data-alert-count]");
+  if (!badge) return;
+  try {
+    const { alerts } = await get("/api/alerts/latest?limit=100");
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    const recent = alerts.filter((a) => a.severity === "critical" &&
+      a.kind !== "recovered" &&
+      new Date(a.time).getTime() > cutoff);
+    if (recent.length) {
+      badge.style.display = "inline-block";
+      badge.textContent = recent.length > 99 ? "99+" : recent.length;
+    } else {
+      badge.style.display = "none";
+    }
+  } catch (e) { /* server may not be ready yet */ }
 }
 
 /* Populate a <select> with scenes; returns the selected value. */
@@ -58,10 +80,62 @@ function showNotice(el, html, kind = "") {
 
 function el(id) { return document.getElementById(id); }
 
+/* ---- real-time alert toasts -------------------------------------------- */
+function toastStack() {
+  let s = document.getElementById("toastStack");
+  if (!s) {
+    s = document.createElement("div");
+    s.id = "toastStack";
+    document.body.appendChild(s);
+  }
+  return s;
+}
+
+/* Poll newest alerts globally and toast anything fresh (all pages). */
+let _lastAlertTime = "";
+const _toastedIds = new Set();
+function pushAlertToast(alert, runId) {
+  if (!alert || !alert.id || _toastedIds.has(alert.id)) return;
+  _toastedIds.add(alert.id);
+  if (_toastedIds.size > 500) _toastedIds.clear();
+  const cls = alert.kind === "recovered" ? "recovered" : (alert.severity || "info");
+  const node = document.createElement("div");
+  node.className = `toast ${cls}`;
+  node.innerHTML = `<div>${esc(alert.message)}</div>
+    <div class="tt">第 ${alert.step} 步 · ${esc(alert.time)}</div>`;
+  node.onclick = () => {
+    window.location.href = `/alerts.html?run=${encodeURIComponent(runId)}`;
+  };
+  toastStack().appendChild(node);
+  setTimeout(() => node.remove(), 8000);
+}
+
+async function pollLatestAlerts() {
+  try {
+    const { alerts } = await get("/api/alerts/latest?limit=20");
+    if (!alerts.length) return;
+    if (!_lastAlertTime) {
+      // First poll: establish a baseline without replaying history.
+      _lastAlertTime = alerts[0].time;
+      return;
+    }
+    const fresh = alerts
+      .filter((a) => a.time > _lastAlertTime)
+      .reverse();
+    if (fresh.length) _lastAlertTime = fresh[fresh.length - 1].time;
+    fresh.forEach((a) => pushAlertToast(a, a.run_id));
+  } catch (e) { /* ignore polling errors */ }
+}
+
 /* Debounce helper for slider/input driven reloads. */
 function debounce(fn, ms = 250) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
-document.addEventListener("DOMContentLoaded", renderNav);
+document.addEventListener("DOMContentLoaded", () => {
+  renderNav();
+  setInterval(refreshNavAlertCount, 15000);
+  setInterval(pollLatestAlerts, 5000);
+  pollLatestAlerts();
+});

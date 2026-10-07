@@ -22,7 +22,7 @@ async function loadStep(idx) {
   el("timeline").value = idx;
 }
 
-async function loadRun(id) {
+async function loadRun(id, wantStep) {
   runId = id;
   meta = await get(`/api/runs/${id}`);
   const { steps } = await get(`/api/runs/${id}/steps`);
@@ -31,7 +31,17 @@ async function loadRun(id) {
   el("timeline").max = maxIdx;
   el("t0").textContent = String(savedSteps[0]);
   el("t1").textContent = String(savedSteps[maxIdx]);
-  await loadStep(maxIdx);
+  // Deep link from the alert center: land on the nearest saved snapshot.
+  let idx = maxIdx;
+  if (wantStep != null) {
+    let best = 0;
+    for (let i = 0; i < savedSteps.length; i++) {
+      if (savedSteps[i] <= wantStep) best = i;
+    }
+    idx = best;
+  }
+  el("timeline").value = idx;
+  await loadStep(idx);
 }
 
 function play() {
@@ -63,10 +73,12 @@ async function init() {
   el("timeline").oninput = debounce((e) => loadStep(parseInt(e.target.value, 10)), 120);
 
   await fillRunSelect(el("runSelect"));
-  const q = new URLSearchParams(window.location.search).get("run");
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("run");
+  const wantStep = params.get("step");
   if (q && el("runSelect").querySelector(`option[value="${q}"]`)) {
     el("runSelect").value = q;
-    await loadRun(q);
+    await loadRun(q, wantStep != null ? Number(wantStep) : null);
   } else if (el("runSelect").options.length > 1) {
     el("runSelect").selectedIndex = 1;
     await loadRun(el("runSelect").value);
